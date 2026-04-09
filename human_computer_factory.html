@@ -1,0 +1,1282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>The Computation Bureau</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#1a0e06; display:flex; flex-direction:column; align-items:center;
+         font-family:'Courier New',monospace; color:#c9a227; user-select:none; }
+  #gameCanvas { display:block; border:3px solid #6a4a12; image-rendering:pixelated; cursor:default; }
+  #eventBar { width:800px; background:#1a0e06; border-left:3px solid #6a4a12; border-right:3px solid #6a4a12;
+              border-bottom:2px solid #4a3010; padding:5px 12px; min-height:26px;
+              font-style:italic; color:#e8a040; font-size:12px; }
+  #hud { width:800px; background:#120a04; border:3px solid #6a4a12; border-top:none;
+         display:grid; grid-template-columns:160px 160px 160px 160px 160px; }
+  .hcol { padding:6px 8px; border-right:1px solid #3a2a0a; }
+  .hcol:last-child { border-right:none; }
+  .htitle { font-size:10px; color:#8a6a28; text-transform:uppercase; letter-spacing:.08em;
+            margin-bottom:3px; border-bottom:1px solid #3a2a0a; padding-bottom:3px; }
+  .hbig { font-size:20px; color:#e8c040; font-weight:bold; }
+  .hl { font-size:11px; color:#c9a227; margin:2px 0; }
+  .hs { font-size:10px; color:#8a6a28; margin:1px 0; }
+  .btn { display:block; width:100%; margin:2px 0; padding:3px 5px; background:#2a1a08;
+         border:1px solid #6a4a12; color:#c9a227; font-family:'Courier New',monospace;
+         font-size:10px; cursor:pointer; text-align:left; }
+  .btn:hover:not(:disabled) { background:#3a2a0a; border-color:#c9a227; }
+  .btn:disabled { opacity:.4; cursor:not-allowed; }
+  .btn.active { background:#4a3a10; border-color:#e8c040; color:#e8c040; }
+  .btn.bought { color:#44aa44; border-color:#44aa44; cursor:default; }
+  .btn.placing { background:#1a3a1a; border-color:#44ee44; color:#88ee88; }
+  .speedrow { display:flex; gap:3px; margin-top:4px; }
+  .spd { background:#2a1a08; border:1px solid #4a3010; color:#8a6a28;
+         font-family:'Courier New',monospace; font-size:10px; padding:2px 8px; cursor:pointer; }
+  .spd.active { background:#4a2a08; border-color:#e8c040; color:#e8c040; }
+  #statusLine { font-size:10px; color:#aaa; margin-top:3px; min-height:12px; }
+  .pipe-bar { height:6px; background:#1a1a1a; margin:1px 0; border-radius:1px; overflow:hidden; }
+  .pipe-fill { height:100%; transition:width .3s; }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas" width="800" height="460"></canvas>
+<div id="eventBar">Welcome to The Computation Bureau. Assign workers to desks to begin production.</div>
+<div id="hud">
+  <!-- col 1: treasury -->
+  <div class="hcol">
+    <div class="htitle">Treasury</div>
+    <div class="hbig" id="hMoney">£1500</div>
+    <div class="hl"  id="hDay">Day 1 of 30</div>
+    <div class="hs"  id="hWages">Wages: £0/day</div>
+    <div class="hs"  id="hLastInc">Last day: £0</div>
+    <div id="statusLine">Click a worker to select</div>
+  </div>
+  <!-- col 2: pipeline -->
+  <div class="hcol">
+    <div class="htitle">Pipeline</div>
+    <div class="hs">Raw calc</div>
+    <div class="pipe-bar"><div class="pipe-fill" id="pRaw" style="background:#aa8833;width:0%"></div></div>
+    <div class="hs" id="hRaw">0 units</div>
+    <div class="hs" style="margin-top:4px">Copied</div>
+    <div class="pipe-bar"><div class="pipe-fill" id="pCopy" style="background:#7744aa;width:0%"></div></div>
+    <div class="hs" id="hCopy">0 units</div>
+    <div class="hs" style="margin-top:4px">Checked ✓</div>
+    <div class="pipe-bar"><div class="pipe-fill" id="pCheck" style="background:#44aa44;width:0%"></div></div>
+    <div class="hs" id="hChecked">0 units today</div>
+  </div>
+  <!-- col 3: hire -->
+  <div class="hcol">
+    <div class="htitle">Hire Staff</div>
+    <button class="btn" id="btnHCalc">+ Calculator £25/+£3d</button>
+    <button class="btn" id="btnHCopy">+ Copier £15/+£2d</button>
+    <button class="btn" id="btnHCheck">+ Checker £20/+£2d</button>
+    <button class="btn" id="btnHSup">+ Supervisor £40/+£5d</button>
+    <button class="btn" id="btnHRunner">+ Runner £12/+£1d</button>
+    <div class="hs" style="margin-top:3px;line-height:1.4">Supervisor roams office,<br>boosts nearby workers.</div>
+  </div>
+  <!-- col 4: expand rooms -->
+  <div class="hcol">
+    <div class="htitle">Expand Office</div>
+    <button class="btn" id="btnRCopy">Copy Room £250</button>
+    <button class="btn" id="btnRCheck">Check Room £400</button>
+    <button class="btn" id="btnRExec">Exec Suite £600</button>
+    <div style="font-size:9px;color:#8a6a28;margin-top:2px">Assign a sup here: +30% bureau-wide &amp; +£25/day (room sups: +50%)</div>
+    <button class="btn" id="btnRExpand">Expansion Wing £500</button>
+    <button class="btn" id="btnDiffEng" style="margin-top:4px">Difference Engine £2500</button>
+    <div class="speedrow">
+      <button class="spd active" id="spd1" onclick="setSpeed(1)">1×</button>
+      <button class="spd" id="spd2" onclick="setSpeed(2)">2×</button>
+      <button class="spd" id="spd4" onclick="setSpeed(4)">4×</button>
+    </div>
+  </div>
+  <!-- col 5: place desks -->
+  <div class="hcol">
+    <div class="htitle">Place Desks</div>
+    <div class="hs" style="margin-bottom:3px">Select type then<br>click in a room:</div>
+    <button class="btn" id="btnPCalc">▸ Calc Desk £80</button>
+    <button class="btn" id="btnPCopy">▸ Copy Desk £60</button>
+    <button class="btn" id="btnPCheck">▸ Check Desk £100</button>
+    <button class="btn" id="btnPSup">▸ Sup Desk £120</button>
+    <button class="btn" id="btnUpgrade">⬆ Upgrade Desk £75</button>
+    <div class="hs" id="hPlaceHint" style="margin-top:3px;color:#88ee88"></div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx    = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+// ── CONSTANTS ──────────────────────────────────────────────────
+const DAY_DURATION   = 90;   // real-seconds per game day
+const GOAL_DAYS      = 30;
+const WIN_MONEY      = 10000; // OR survive GOAL_DAYS
+const HALLWAY_Y1     = 215;
+const HALLWAY_Y2     = 275;
+const WALK_SPEED     = 72;
+const IDLE_SPEED     = 26;
+const SUP_SPEED      = 38;
+const RUNNER_SPEED   = WALK_SPEED * 1.35;
+const SUP_RADIUS     = 130; // pixels; supervisor boost radius
+const PROD_RATES     = { calc:4.2, copy:3.2, check:3.6 };
+const RUNNER_BATCH   = 3;   // units carried per trip
+const UPGRADE_BOOST  = 0.72; // multiplier on rate (lower = faster) when upgraded
+const WORKER_COLORS  = { calc:'#4a7aaa', copy:'#8a4a9a', check:'#3a8a4a', sup:'#cc6622', runner:'#aa8833' };
+const HIRE_COST      = { calc:25, copy:15, check:20, sup:40, runner:12 };
+const DAILY_WAGE     = { calc:3,  copy:2,  check:2,  sup:5,  runner:1  };
+const DESK_COST      = { calc:80, copy:60, check:100, sup:120 };
+const DESK_UPGRADE   = 75;
+const INCOME_CHECKED = 8;
+const INCOME_COPY    = 2;
+const DE_COST        = 2000;
+const DE_RATE        = 1.6;  // seconds per 4 raw units (≈ 3 calculator desks worth)
+
+// Room pixel bounds for placement collision  [x1,y1,x2,y2]
+const ROOM_BOUNDS = {
+  calcWing:  [8,   8,  261, 207],
+  copyRoom:  [267, 8,  531, 207],
+  checkRoom: [537, 8,  792, 207],
+  execSuite: [8,   275, 391, 452],
+  expansion: [397, 275, 792, 452],
+};
+
+// ── STATE ──────────────────────────────────────────────────────
+let money=1500, day=1, dayTimer=0, gameSpeed=1;
+let gameOver=false, gameWon=false, freeplay=false;
+let totalEarned=0, lastIncome=0;
+let checkedBuf=0, todayChecked=0;
+let nextWid=4, nextDid=20, selectedWorker=null;
+let placingDesk=null;   // {type,cost} | null
+let upgradeMode=false;
+let endOfDayActive=false, endOfDayTimer=0, endOfDayNet=0, endOfDayIncome=0;
+let evCalcMod=1, evCopyMod=1, evAllMod=1;
+let evCalcTimer=0, evCopyTimer=0, evAllTimer=0, nextEvTimer=20;
+let diffEngine={ bought:false, timer:0, x:430, y:296, w:130, h:100, output:0 };
+let hoverDesk=null, mouseX=0, mouseY=0;
+let idleNagTimer=25;
+let warningNagTimer=18;
+
+let rooms = { calcWing:true, copyRoom:true, checkRoom:true, execSuite:false, expansion:false };
+
+// ── DESKS ──────────────────────────────────────────────────────
+// Each desk: {id, type, room, x, y, unlocked, worker, progress, upgraded, output, input}
+let desks = [
+  {id:0,  type:'calc',  room:'calcWing',  x:30,  y:50,  unlocked:true,  worker:null, progress:0, upgraded:false, output:0, input:0},
+  {id:1,  type:'calc',  room:'calcWing',  x:120, y:50,  unlocked:true,  worker:null, progress:0, upgraded:false, output:0, input:0},
+  // exec suite — 1 unlocked when room bought
+  {id:12, type:'sup',   room:'execSuite', x:40,  y:310, unlocked:false, worker:null, progress:0, upgraded:false, output:0, input:0},
+];
+
+// ── WORKERS ───────────────────────────────────────────────────
+function makeWorker(type, id) {
+  let wx=80+Math.random()*640, wy=HALLWAY_Y1+10+Math.random()*40;
+  if(type==='runner'){
+    return { id, type, x:wx, y:wy, tx:wx, ty:wy,
+             state:'idle', desk:null,
+             srcDesk:null, dstDesk:null, carrying:null,
+             animFrame:0, animTimer:0,
+             wanderTx:wx+(Math.random()-.5)*200, wanderTy:wy,
+             wanderTimer:2+Math.random()*4, forcedIdleTimer:0 };
+  }
+  return { id, type, x:wx, y:wy, tx:wx, ty:wy, state:'idle', desk:null,
+           workTimer:0, animFrame:0, animTimer:0,
+           wanderTx:wx+(Math.random()-.5)*200, wanderTy:wy,
+           wanderTimer:2+Math.random()*4, forcedIdleTimer:0 };
+}
+let workers=[makeWorker('calc',1), makeWorker('calc',2), makeWorker('runner',3)];
+
+// ── HELPERS ───────────────────────────────────────────────────
+function dist(ax,ay,bx,by){ return Math.sqrt((ax-bx)**2+(ay-by)**2); }
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+function byId(arr,id){ return arr.find(x=>x.id===id)||null; }
+function dailyWages(){ return workers.reduce((s,w)=>s+DAILY_WAGE[w.type],0); }
+function setSpeed(s){
+  gameSpeed=s;
+  ['spd1','spd2','spd4'].forEach(id=>document.getElementById(id).classList.toggle('active',id==='spd'+s));
+}
+
+// Which room does a pixel (px,py) fall inside?
+function roomAt(px,py){
+  for(const [k,[x1,y1,x2,y2]] of Object.entries(ROOM_BOUNDS)){
+    if(px>=x1&&px<=x2&&py>=y1&&py<=y2) return k;
+  }
+  return null;
+}
+
+// Supervisors in the Exec Suite oversee the whole bureau (historical superintendent role)
+function getSupRadius(s){
+  if(s.desk!==null){ let d=byId(desks,s.desk); if(d&&d.room==='execSuite') return 9999; }
+  return SUP_RADIUS;
+}
+
+function getEfficiency(w, desk){
+  let base=(w.type===desk.type)?1.0:0.65;
+  let sup=1.0;
+  for(let s of workers){
+    if(s.type!=='sup') continue;
+    if(dist(w.x,w.y,s.x,s.y)<getSupRadius(s)){
+      // Room supervisor (not exec suite) gives stronger boost than distant superintendent
+      let boost=(s.desk!==null&&byId(desks,s.desk)&&byId(desks,s.desk).room!=='execSuite')?1.5:1.3;
+      if(boost>sup) sup=boost;
+    }
+  }
+  let ev=1.0;
+  if(desk.type==='calc') ev*=evCalcMod;
+  if(desk.type==='copy') ev*=evCopyMod;
+  ev*=evAllMod;
+  let upg=desk.upgraded?UPGRADE_BOOST:1.0;
+  return base*sup*ev*upg;  // higher = faster (divides into rate)
+}
+
+function unassignWorker(w){
+  if(w.desk!==null){
+    let d=byId(desks,w.desk);
+    if(d){d.worker=null;d.progress=0;}
+    w.desk=null;
+  }
+  w.state='idle';
+  w.workTimer=0;
+  w.tx=80+Math.random()*640;
+  w.ty=HALLWAY_Y1+10+Math.random()*40;
+  w.wanderTx=w.tx; w.wanderTy=w.ty;
+}
+
+// Supervisor: wander slowly within the room they're assigned to
+function updateSupWander(w, desk, rdt){
+  w.wanderTimer-=rdt;
+  if(w.wanderTimer<=0){
+    let rb=desk?ROOM_BOUNDS[desk.room]:null;
+    if(rb){
+      w.wanderTx=clamp(desk.x+18+(Math.random()-.5)*120, rb[0]+14, rb[2]-14);
+      w.wanderTy=clamp(desk.y+13+(Math.random()-.5)*80,  rb[1]+22, rb[3]-22);
+    }else{
+      w.wanderTx=80+Math.random()*640;
+      w.wanderTy=HALLWAY_Y1+8+Math.random()*44;
+    }
+    w.wanderTimer=1.5+Math.random()*2.5;
+  }
+  let dx=w.wanderTx-w.x, dy=w.wanderTy-w.y, d=Math.sqrt(dx*dx+dy*dy);
+  if(d>5){ w.x+=dx/d*SUP_SPEED*rdt; w.y+=dy/d*SUP_SPEED*rdt; }
+}
+
+// ── RUNNER LOGIC ──────────────────────────────────────────────
+function deskCenter(desk){
+  return { x: desk.x+18, y: desk.y+13 };
+}
+
+function deCenterPos(){
+  return { x: diffEngine.x + diffEngine.w/2, y: diffEngine.y + diffEngine.h/2 };
+}
+
+function findRunnerTask(runner){
+  let tasks=[];
+
+  // Count how many other runners are already heading to each destination desk
+  let inFlight={};
+  for(let w of workers){
+    if(w.type==='runner'&&w.id!==runner.id&&w.dstDesk!==null){
+      inFlight[w.dstDesk]=(inFlight[w.dstDesk]||0)+1;
+    }
+  }
+
+  // ── Raw sources (calc desks + Difference Engine) ──────────────
+  let rawSources=[];
+  for(let d of desks){
+    if(d.unlocked&&d.type==='calc'&&d.output>0){
+      let c=deskCenter(d); rawSources.push({src:d.id,x:c.x,y:c.y,out:d.output});
+    }
+  }
+  if(diffEngine.bought&&diffEngine.output>0){
+    let c=deCenterPos(); rawSources.push({src:'de',x:c.x,y:c.y,out:diffEngine.output});
+  }
+
+  // ── Copy→Check tasks (scored first — these generate income) ───
+  let copyWithOutput=desks.filter(d=>d.unlocked&&d.type==='copy'&&d.output>0);
+  let checkWithSpace =desks.filter(d=>d.unlocked&&d.type==='check'&&d.input<5);
+  for(let src of copyWithOutput){
+    for(let dst of checkWithSpace){
+      let sc=deskCenter(src), dc=deskCenter(dst);
+      // Base score: 2× weight vs raw→copy so copy backlog doesn't pile up
+      let score = src.output*2.5 + (5-dst.input)*2.0;
+      // Stall-prevention: checker runs completely dry → urgent
+      if(dst.input===0) score+=10;
+      score -= dist(runner.x,runner.y,sc.x,sc.y)*0.015;
+      score -= (inFlight[dst.id]||0)*6;
+      tasks.push({src:src.id,dst:dst.id,carrying:'copy',srcX:sc.x,srcY:sc.y,dstX:dc.x,dstY:dc.y,score});
+    }
+  }
+
+  // ── Raw→Copy tasks ─────────────────────────────────────────────
+  // Penalise feeding the copy room when it's already backing up —
+  // each unit of copy-room output reduces the attractiveness of adding more input.
+  let copyBacklog=desks.filter(d=>d.unlocked&&d.type==='copy').reduce((s,d)=>s+d.output,0);
+  let copyWithSpace=desks.filter(d=>d.unlocked&&d.type==='copy'&&d.input<5);
+  for(let src of rawSources){
+    for(let dst of copyWithSpace){
+      let dc=deskCenter(dst);
+      let score = src.out*1.0 + (5-dst.input)*1.0;
+      // Stall-prevention: copier runs completely dry → urgent
+      if(dst.input===0) score+=10;
+      // Backlog penalty: only penalise adding MORE to copy room when it already has output
+      // piling up AND the destination isn't already stalled (stall takes absolute priority)
+      if(dst.input>0) score -= copyBacklog*1.5;
+      score -= dist(runner.x,runner.y,src.x,src.y)*0.015;
+      score -= (inFlight[dst.id]||0)*6;
+      tasks.push({src:src.src,dst:dst.id,carrying:'raw',srcX:src.x,srcY:src.y,dstX:dc.x,dstY:dc.y,score});
+    }
+  }
+
+  if(!tasks.length) return null;
+  tasks.sort((a,b)=>b.score-a.score);
+  return tasks[0];
+}
+
+function updateRunner(w, rdt){
+  w.animTimer+=rdt;
+  if(w.animTimer>0.18){w.animTimer=0;w.animFrame^=1;}
+
+  if(w.state==='idle'){
+    let task=findRunnerTask(w);
+    if(task){
+      w.srcDesk=task.src;
+      w.dstDesk=task.dst;
+      w.carrying=task.carrying;
+      w.tx=task.srcX;
+      w.ty=task.srcY;
+      w.state='fetching';
+    } else {
+      // Hallway wander
+      w.wanderTimer-=rdt;
+      if(w.wanderTimer<=0||dist(w.x,w.y,w.wanderTx,w.wanderTy)<5){
+        w.wanderTx=clamp(80+Math.random()*640, 20, 780);
+        w.wanderTy=HALLWAY_Y1+8+Math.random()*44;
+        w.wanderTimer=2+Math.random()*4;
+      }
+      let dx=w.wanderTx-w.x, dy=w.wanderTy-w.y, d=Math.sqrt(dx*dx+dy*dy);
+      if(d>3){ w.x+=dx/d*IDLE_SPEED*rdt; w.y+=dy/d*IDLE_SPEED*rdt; }
+    }
+    return;
+  }
+
+  if(w.state==='fetching'){
+    let dx=w.tx-w.x, dy=w.ty-w.y, d=Math.sqrt(dx*dx+dy*dy);
+    if(d<4){
+      w.x=w.tx; w.y=w.ty;
+      // Arrived at source — pick up a batch
+      let available=0;
+      if(w.srcDesk==='de'){
+        available=diffEngine.output;
+      } else {
+        let src=byId(desks,w.srcDesk);
+        available=src?src.output:0;
+      }
+      if(available>0){
+        let dst=byId(desks,w.dstDesk);
+        // If original destination filled up by another runner, find the next best one
+        if(dst&&dst.input>=5){
+          let type=dst.type;
+          dst=desks.find(d=>d.unlocked&&d.type===type&&d.id!==dst.id&&d.input<5)||null;
+          w.dstDesk=dst?dst.id:null;
+        }
+        let space=dst?Math.max(0,5-dst.input):0;
+        let pick=Math.min(RUNNER_BATCH, available, space);
+        if(pick>0){
+          if(w.srcDesk==='de') diffEngine.output-=pick;
+          else { let src=byId(desks,w.srcDesk); src.output-=pick; }
+          w.batchCount=pick;
+          if(dst){ let c=deskCenter(dst); w.tx=c.x; w.ty=c.y; w.dstDesk=dst.id; }
+          w.state='delivering';
+        } else {
+          w.srcDesk=null; w.dstDesk=null; w.carrying=null; w.batchCount=0; w.state='idle';
+        }
+      } else {
+        w.srcDesk=null; w.dstDesk=null; w.carrying=null; w.batchCount=0; w.state='idle';
+      }
+    } else {
+      w.x+=dx/d*RUNNER_SPEED*rdt;
+      w.y+=dy/d*RUNNER_SPEED*rdt;
+    }
+    return;
+  }
+
+  if(w.state==='delivering'){
+    let dx=w.tx-w.x, dy=w.ty-w.y, d=Math.sqrt(dx*dx+dy*dy);
+    if(d<4){
+      w.x=w.tx; w.y=w.ty;
+      let dst=byId(desks,w.dstDesk);
+      if(dst){
+        let count=w.batchCount||1;
+        let fit=Math.min(count,Math.max(0,5-dst.input));
+        dst.input+=fit;
+        let overflow=count-fit;
+        if(overflow>0){
+          // Spill to another desk of the same type with space
+          let spill=desks.find(d=>d.unlocked&&d.type===dst.type&&d.id!==dst.id&&d.input<5);
+          if(spill) spill.input=Math.min(5,spill.input+overflow);
+          // else all desks full — units held until next task (don't just discard)
+        }
+      }
+      w.carrying=null; w.srcDesk=null; w.dstDesk=null; w.batchCount=0; w.state='idle';
+    } else {
+      w.x+=dx/d*RUNNER_SPEED*rdt;
+      w.y+=dy/d*RUNNER_SPEED*rdt;
+    }
+    return;
+  }
+}
+
+// ── EVENTS ────────────────────────────────────────────────────
+const EVENTS=[
+  {msg:'Inkwell shortage — copy desks at half speed for 20s.',      fn:()=>{evCopyMod=0.5;evCopyTimer=20;}},
+  {msg:'Afternoon fatigue — calculators slow for 15s.',             fn:()=>{evCalcMod=0.65;evCalcTimer=15;}},
+  {msg:'New arithmetic shortcut! Calculators faster for 18s.',      fn:()=>{evCalcMod=1.45;evCalcTimer=18;}},
+  {msg:'Gas lamps fail — all productivity down 30% for 25s.',       fn:()=>{evAllMod=0.7;evAllTimer=25;}},
+  {msg:'Patron visits — workers seem pleased.',                     fn:()=>{}},
+  {msg:'Systematic error found — 5 checked units voided!',         fn:()=>{checkedBuf=Math.max(0,checkedBuf-5);todayChecked=Math.max(0,todayChecked-5);}},
+  {msg:'Rush order! Extra payment if you exceed 15 checked units.', fn:()=>{}},
+  {msg:'Cold snap — 1 worker forced to rest for 25s.',              fn:()=>{
+    let a=workers.filter(w=>w.state!=='idle'&&w.type!=='runner');
+    if(a.length){let w=a[Math.floor(Math.random()*a.length)];w.forcedIdleTimer=25;unassignWorker(w);}
+  }},
+  {msg:'Paper jam at copy room — copy desks stall for 12s.',        fn:()=>{evCopyMod=0;evCopyTimer=12;}},
+  {msg:'A checker finds a chain error — calc desk outputs reduced.', fn:()=>{
+    for(let d of desks){if(d.type==='calc') d.output=Math.max(0,d.output-2);}
+  }},
+  {msg:'New delivery of ruled paper — copiers faster for 15s.',     fn:()=>{evCopyMod=1.4;evCopyTimer=15;}},
+  {msg:'Inspector arrives — better keep those checkers busy!',       fn:()=>{evAllMod=1.1;evAllTimer=20;}},
+];
+
+function fireEvent(){
+  let ev=EVENTS[Math.floor(Math.random()*EVENTS.length)];
+  ev.fn();
+  document.getElementById('eventBar').textContent=ev.msg;
+  nextEvTimer=14+Math.random()*12;
+}
+
+// ── UPDATE ────────────────────────────────────────────────────
+function update(dt){
+  if(gameOver||gameWon) return;
+  if(endOfDayActive){
+    endOfDayTimer-=dt;
+    if(endOfDayTimer<=0){endOfDayActive=false;startNewDay();}
+    return;
+  }
+  let rdt=dt*gameSpeed;
+  dayTimer+=rdt;
+  evCalcTimer-=rdt; if(evCalcTimer<=0){evCalcMod=1;evCalcTimer=0;}
+  evCopyTimer-=rdt; if(evCopyTimer<=0){evCopyMod=1;evCopyTimer=0;}
+  evAllTimer -=rdt; if(evAllTimer <=0){evAllMod=1; evAllTimer=0;}
+  nextEvTimer-=rdt; if(nextEvTimer<=0) fireEvent();
+
+  // Idle nag
+  idleNagTimer-=rdt;
+  if(idleNagTimer<=0){
+    idleNagTimer=20;
+    let idle=workers.filter(w=>w.state==='idle'&&w.type!=='sup'&&w.type!=='runner');
+    if(idle.length>0){
+      let w=idle[0];
+      document.getElementById('eventBar').textContent=
+        `Worker ${w.id} (${w.type}) is idle in the hallway — assign them to a desk!`;
+    }
+  }
+
+  // Warning nag
+  warningNagTimer-=rdt;
+  if(warningNagTimer<=0){
+    warningNagTimer=18;
+    let numRunners=workers.filter(w=>w.type==='runner').length;
+    let calcOutputSum=desks.filter(d=>d.unlocked&&d.type==='calc').reduce((s,d)=>s+d.output,0);
+    let copyOutputSum=desks.filter(d=>d.unlocked&&d.type==='copy').reduce((s,d)=>s+d.output,0);
+    let copyInputSum =desks.filter(d=>d.unlocked&&d.type==='copy').reduce((s,d)=>s+d.input,0);
+    if(calcOutputSum>=4 && numRunners===0){
+      document.getElementById('eventBar').textContent=
+        'Calc desks are full! Hire a runner to move work between stations.';
+    } else if(numRunners>0 && copyInputSum===0 && calcOutputSum>0){
+      let busyRunners=workers.filter(w=>w.type==='runner'&&w.carrying!==null).length;
+      if(busyRunners===numRunners){
+        document.getElementById('eventBar').textContent=
+          'Not enough runners — work is piling up.';
+      }
+    }
+  }
+
+  // Difference Engine production
+  if(diffEngine.bought){
+    diffEngine.timer+=rdt;
+    if(diffEngine.timer>=DE_RATE){
+      diffEngine.timer=0;
+      diffEngine.output=Math.min(diffEngine.output+4, 10);
+    }
+  }
+
+  for(let w of workers){
+    if(w.forcedIdleTimer>0){ w.forcedIdleTimer-=rdt; continue; }
+
+    // Runner: fully custom state machine
+    if(w.type==='runner'){
+      updateRunner(w, rdt);
+      continue;
+    }
+
+    w.animTimer+=rdt;
+    if(w.animTimer>0.22){w.animTimer=0;w.animFrame^=1;}
+
+    if(w.state==='idle'){
+      w.wanderTimer-=rdt;
+      if(w.wanderTimer<=0||dist(w.x,w.y,w.wanderTx,w.wanderTy)<5){
+        w.wanderTx=80+Math.random()*640;
+        w.wanderTy=HALLWAY_Y1+8+Math.random()*44;
+        w.wanderTimer=2+Math.random()*4;
+      }
+      let dx=w.wanderTx-w.x,dy=w.wanderTy-w.y,d=Math.sqrt(dx*dx+dy*dy);
+      if(d>3){w.x+=dx/d*IDLE_SPEED*rdt;w.y+=dy/d*IDLE_SPEED*rdt;}
+
+    }else if(w.state==='walking'){
+      let dx=w.tx-w.x,dy=w.ty-w.y,d=Math.sqrt(dx*dx+dy*dy);
+      if(d<3){w.x=w.tx;w.y=w.ty;w.state='working';w.workTimer=0;}
+      else{w.x+=dx/d*WALK_SPEED*rdt;w.y+=dy/d*WALK_SPEED*rdt;}
+
+    }else if(w.state==='working'){
+      if(w.desk===null){w.state='idle';continue;}
+      let desk=byId(desks,w.desk);
+      if(!desk||!desk.unlocked){unassignWorker(w);continue;}
+      // Supervisors wander their room — no production, just boost nearby workers
+      if(w.type==='sup'){ updateSupWander(w,desk,rdt); continue; }
+
+      // Copy desk needs input from runner
+      if(desk.type==='copy' && desk.input<=0){ desk.progress=0; continue; }
+      // Check desk needs input from runner
+      if(desk.type==='check' && desk.input<=0){ desk.progress=0; continue; }
+
+      let eff=getEfficiency(w,desk);
+      let rate=PROD_RATES[desk.type]||4;
+      desk.progress+=rdt*eff/rate;
+      if(desk.progress>=1){
+        desk.progress=0;
+        if(desk.type==='calc'){
+          // Output to queue if space available
+          if(desk.output<5){ desk.output++; }
+          // else: desk is full, worker idles this tick (progress stays 0)
+        } else if(desk.type==='copy'){
+          desk.input=Math.max(0, desk.input-1);
+          desk.output++;
+        } else if(desk.type==='check'){
+          desk.input=Math.max(0, desk.input-1);
+          checkedBuf++; todayChecked++;
+        }
+      }
+    }
+  }
+
+  if(dayTimer>=DAY_DURATION) triggerEndOfDay();
+}
+
+function triggerEndOfDay(){
+  let execBonus=desks.some(d=>d.room==='execSuite'&&d.worker!==null)?25:0;
+  let income=checkedBuf*INCOME_CHECKED+execBonus;
+  let wages=dailyWages();
+  let net=income-wages;
+  money+=net; totalEarned+=income; lastIncome=income;
+  endOfDayNet=net; endOfDayIncome=income;
+  if(money<0){gameOver=true;return;}
+  if(!freeplay&&(day>=GOAL_DAYS||totalEarned>=WIN_MONEY)){gameWon=true;return;}
+  endOfDayActive=true; endOfDayTimer=2.5;
+}
+
+function startNewDay(){
+  day++; dayTimer=0;
+  checkedBuf=0; todayChecked=0;
+  for(let d of desks){ d.progress=0; d.output=0; d.input=0; }
+  if(diffEngine.bought){ diffEngine.timer=0; diffEngine.output=0; }
+  for(let w of workers){
+    if(w.type==='runner'){
+      w.state='idle'; w.carrying=null; w.srcDesk=null; w.dstDesk=null;
+      w.tx=80+Math.random()*640; w.ty=HALLWAY_Y1+10+Math.random()*40;
+      w.wanderTx=w.tx; w.wanderTy=w.ty;
+    } else if(w.desk!==null){
+      let d=byId(desks,w.desk);
+      if(d&&d.unlocked){w.state='walking';w.tx=d.x+18;w.ty=d.y+5;}
+      else{w.desk=null;w.state='idle';}
+    }
+  }
+}
+
+// ── DRAW HELPERS ──────────────────────────────────────────────
+function drawTiles(x1,y1,x2,y2,c1,c2){
+  let ts=16;
+  for(let ty=y1;ty<y2;ty+=ts){
+    for(let tx=x1;tx<x2;tx+=ts){
+      ctx.fillStyle=((Math.floor((tx-x1)/ts)+Math.floor((ty-y1)/ts))%2===0)?c1:c2;
+      ctx.fillRect(tx,ty,Math.min(ts,x2-tx),Math.min(ts,y2-ty));
+    }
+  }
+}
+
+function drawRoom(x1,y1,x2,y2,label,unlocked,lockPrice){
+  if(unlocked){
+    drawTiles(x1,y1,x2,y2,'#c8a86a','#b8985a');
+    let tw=label.length*6+8;
+    ctx.fillStyle='rgba(0,0,0,0.5)';ctx.fillRect(x1+4,y1+4,tw,14);
+    ctx.fillStyle='#e8c040';ctx.font='bold 10px monospace';ctx.textAlign='left';
+    ctx.fillText(label,x1+8,y1+14);
+  }else{
+    drawTiles(x1,y1,x2,y2,'#555','#444');
+    ctx.fillStyle='rgba(0,0,0,0.68)';ctx.fillRect(x1,y1,x2-x1,y2-y1);
+    ctx.fillStyle='#aa5522';ctx.font='bold 24px sans-serif';ctx.textAlign='center';
+    ctx.fillText('\uD83D\uDD12',(x1+x2)/2,(y1+y2)/2+4);
+    ctx.fillStyle='#dd8844';ctx.font='bold 11px monospace';
+    ctx.fillText('LOCKED  \u00A3'+lockPrice,(x1+x2)/2,(y1+y2)/2+22);
+  }
+}
+
+function drawWalls(){
+  ctx.fillStyle='#3a2010';
+  ctx.fillRect(0,0,800,8);ctx.fillRect(0,452,800,8);
+  ctx.fillRect(0,0,8,460);ctx.fillRect(792,0,8,460);
+  ctx.fillRect(0,207,800,8);ctx.fillRect(0,267,800,8);
+  // upper dividers with doorways (gap at y 130–175)
+  ctx.fillRect(261,8,6,122);ctx.fillRect(261,172,6,35);
+  ctx.fillRect(531,8,6,122);ctx.fillRect(531,172,6,35);
+  // lower divider
+  ctx.fillRect(391,275,6,177);
+}
+
+function drawDeskPaperPiles(desk){
+  if(!desk.unlocked) return;
+  let{x,y,type}=desk;
+  let dw=36, dh=26;
+
+  // Output pile — bottom-right corner of desk surface
+  if(desk.output>0){
+    let col = type==='calc'?'#f8f0d8': type==='copy'?'#e0d0f0':'#d0f0d0';
+    let shadow='rgba(0,0,0,0.3)';
+    for(let i=0;i<Math.min(desk.output,5);i++){
+      let ox=x+dw-6+i*0.7, oy=y+dh-10-i*2;
+      ctx.fillStyle=shadow; ctx.fillRect(ox+1,oy+1,4,3);
+      ctx.fillStyle=col;    ctx.fillRect(ox,oy,4,3);
+      ctx.strokeStyle='rgba(0,0,0,0.2)';ctx.lineWidth=0.5;ctx.strokeRect(ox,oy,4,3);
+    }
+  }
+
+  // Input pile — top-left corner
+  if(desk.input>0){
+    let col = type==='copy'?'#f8f0d8': type==='check'?'#f8f0d8':'#f0f0f0';
+    let shadow='rgba(0,0,0,0.3)';
+    for(let i=0;i<Math.min(desk.input,5);i++){
+      let ox=x+2+i*0.5, oy=y+2+i*1.5;
+      ctx.fillStyle=shadow; ctx.fillRect(ox+1,oy+1,4,3);
+      ctx.fillStyle=col;    ctx.fillRect(ox,oy,4,3);
+      ctx.strokeStyle='rgba(0,0,0,0.2)';ctx.lineWidth=0.5;ctx.strokeRect(ox,oy,4,3);
+    }
+  }
+}
+
+function drawDesk(desk,hover){
+  if(!desk.unlocked) return;
+  let{x,y,type,worker:wid,progress,upgraded}=desk;
+  let dw=36,dh=26;
+  ctx.fillStyle='rgba(0,0,0,0.2)';ctx.fillRect(x+3,y+dh,dw,3);
+  ctx.fillStyle=upgraded?'#9a7a4a':'#8B5E3C';ctx.fillRect(x,y,dw,dh-4);
+  ctx.fillStyle=upgraded?'#7a5a2a':'#5C3A1E';ctx.fillRect(x,y+dh-4,dw,4);
+  ctx.strokeStyle='#3a2010';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(x+8,y+dh-4);ctx.lineTo(x+28,y+dh-4);ctx.stroke();
+  ctx.strokeStyle=hover?'#ffee00':(upgraded?'#c9a227':'#4a2a0a');
+  ctx.lineWidth=hover||upgraded?2:1;ctx.strokeRect(x,y,dw,dh);
+  if(upgraded){
+    ctx.fillStyle='#e8c040';ctx.font='7px monospace';ctx.textAlign='left';
+    ctx.fillText('⬆',x+2,y+8);
+  }
+  let icons={calc:'Σ',copy:'⌇',check:'✓',sup:'★'};
+  ctx.fillStyle=hover?'#ffee00':'#e8c040';ctx.font='bold 13px monospace';ctx.textAlign='center';
+  ctx.fillText(icons[type]||'?',x+dw/2,y+dh-7);
+  if(wid!==null){
+    ctx.fillStyle='#f5f0e0';ctx.fillRect(x+4,y+3,14,9);
+    ctx.fillStyle='#ccc';ctx.fillRect(x+6,y+5,10,2);ctx.fillRect(x+6,y+8,10,1);
+  }
+  ctx.fillStyle='#1a1a1a';ctx.fillRect(x,y+dh+2,dw,5);
+  if(progress>0){ctx.fillStyle='#44aa44';ctx.fillRect(x,y+dh+2,Math.round(dw*progress),5);}
+  ctx.fillStyle='#8a6a28';ctx.font='8px monospace';ctx.textAlign='center';
+  ctx.fillText(type.toUpperCase(),x+dw/2,y+dh+17);
+
+  // Draw paper piles on top
+  drawDeskPaperPiles(desk);
+}
+
+function drawGhostDesk(px,py,type){
+  let x=px-18,y=py-13;
+  ctx.globalAlpha=0.55;
+  ctx.fillStyle='#8B5E3C';ctx.fillRect(x,y,36,22);
+  ctx.strokeStyle='#88ee88';ctx.lineWidth=2;ctx.strokeRect(x,y,36,22);
+  let icons={calc:'Σ',copy:'⌇',check:'✓',sup:'★'};
+  ctx.fillStyle='#88ee88';ctx.font='bold 13px monospace';ctx.textAlign='center';
+  ctx.fillText(icons[type]||'?',x+18,y+16);
+  ctx.globalAlpha=1;
+}
+
+function drawWorker(w){
+  let bx=Math.round(w.x),by=Math.round(w.y);
+  let isWorking=(w.type==='runner')?(w.state==='fetching'||w.state==='delivering'):(w.state==='working');
+  let bob=isWorking?(w.animFrame?1:-1):0;
+
+  // Supervisor aura
+  if(w.type==='sup'){
+    let drawR=Math.min(getSupRadius(w),250);
+    ctx.save();
+    ctx.globalAlpha=0.12;
+    ctx.fillStyle='#ffcc00';
+    ctx.beginPath();ctx.arc(bx,by,drawR,0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=0.35;
+    ctx.strokeStyle='#ffcc00';ctx.lineWidth=1.5;
+    ctx.setLineDash([5,5]);
+    ctx.beginPath();ctx.arc(bx,by,drawR,0,Math.PI*2);ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha=1;
+    ctx.restore();
+  }
+
+  // Shadow
+  ctx.fillStyle='rgba(0,0,0,0.28)';
+  ctx.beginPath();ctx.ellipse(bx,by+13,7,3,0,0,Math.PI*2);ctx.fill();
+
+  // Legs
+  let ll=!isWorking?(w.animFrame?-2:2):0;
+  let rl=!isWorking?(w.animFrame?2:-2):0;
+  ctx.fillStyle='#2a1a08';
+  ctx.fillRect(bx-4,by+9+bob,4,6+ll);ctx.fillStyle='#111';ctx.fillRect(bx-5,by+14+bob+ll,5,3);
+  ctx.fillStyle='#2a1a08';
+  ctx.fillRect(bx+1,by+9+bob,4,6+rl); ctx.fillStyle='#111';ctx.fillRect(bx+1,by+14+bob+rl,5,3);
+
+  // Body
+  ctx.fillStyle=WORKER_COLORS[w.type]||'#888';ctx.fillRect(bx-4,by+bob,8,9);
+  ctx.fillStyle='rgba(255,255,255,0.18)';ctx.fillRect(bx-3,by+1+bob,3,5);
+
+  // Head
+  ctx.fillStyle='#f5c090';ctx.fillRect(bx-3,by-7+bob,6,7);
+  ctx.fillStyle='#2a1a08';ctx.fillRect(bx-2,by-5+bob,1,2);ctx.fillRect(bx+1,by-5+bob,1,2);
+
+  // Hat
+  ctx.fillStyle='#2a1a08';ctx.fillRect(bx-5,by-9+bob,10,3);ctx.fillRect(bx-3,by-13+bob,6,4);
+  ctx.fillStyle=WORKER_COLORS[w.type];ctx.fillRect(bx-3,by-10+bob,6,1);
+
+  // Runner carrying packet
+  if(w.type==='runner' && w.carrying!==null){
+    let pkCol = w.carrying==='raw'?'#f5e0a0':'#d0b0e0';
+    let px=bx-4, py2=by-20+bob;
+    // Connecting line
+    ctx.strokeStyle='rgba(120,80,40,0.7)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(bx,by-13+bob);ctx.lineTo(bx,py2+6);ctx.stroke();
+    // Packet
+    ctx.fillStyle='rgba(0,0,0,0.25)';ctx.fillRect(px+2,py2+2,8,6);
+    ctx.fillStyle=pkCol;ctx.fillRect(px,py2,8,6);
+    ctx.strokeStyle='rgba(0,0,0,0.4)';ctx.lineWidth=0.5;ctx.strokeRect(px,py2,8,6);
+    // Lines on paper
+    ctx.strokeStyle='rgba(80,60,20,0.5)';ctx.lineWidth=0.5;
+    ctx.beginPath();ctx.moveTo(px+1,py2+2);ctx.lineTo(px+7,py2+2);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(px+1,py2+4);ctx.lineTo(px+7,py2+4);ctx.stroke();
+  }
+
+  // Label
+  let label=(w.type==='runner'?'\u2192':'')+w.id+(w.type==='sup'?'★':'');
+  let lw=label.length*5+4;
+  ctx.fillStyle='rgba(0,0,0,0.8)';ctx.fillRect(bx-lw/2,by-21+bob,lw,10);
+  ctx.fillStyle='#fff';ctx.font='8px monospace';ctx.textAlign='center';
+  ctx.fillText(label,bx,by-13+bob);
+
+  // Boosted indicator (gold star above non-sup workers in range)
+  if(w.type!=='sup'&&w.type!=='runner'){
+    for(let s of workers){
+      if(s.type==='sup'&&dist(w.x,w.y,s.x,s.y)<getSupRadius(s)){
+        ctx.fillStyle='#ffcc00';ctx.font='9px sans-serif';ctx.textAlign='center';
+        ctx.fillText('✦',bx,by-23+bob);
+        break;
+      }
+    }
+  }
+
+  // Selection ring
+  if(selectedWorker&&selectedWorker.id===w.id){
+    ctx.strokeStyle='#ffee00';ctx.lineWidth=2;
+    ctx.beginPath();ctx.ellipse(bx,by+3,13,17,0,0,Math.PI*2);ctx.stroke();
+  }
+}
+
+function drawDifferenceEngine(){
+  if(!diffEngine.bought) return;
+  let{x,y,w,h}=diffEngine;
+  // Body
+  ctx.fillStyle='#3a3a4a';ctx.fillRect(x,y,w,h);
+  ctx.strokeStyle='#6a6a8a';ctx.lineWidth=2;ctx.strokeRect(x,y,w,h);
+  // Gear decorations
+  ctx.strokeStyle='#8a8aaa';ctx.lineWidth=1.5;
+  for(let gi=0;gi<3;gi++){
+    let gx=x+22+gi*38,gy=y+h/2;
+    let gr=14+gi%2*4, t=Date.now()*0.001*(gi%2===0?1:-1);
+    ctx.save();ctx.translate(gx,gy);ctx.rotate(t);
+    ctx.beginPath();ctx.arc(0,0,gr,0,Math.PI*2);ctx.stroke();
+    for(let s=0;s<8;s++){
+      let a=s*Math.PI/4;
+      ctx.beginPath();ctx.moveTo(Math.cos(a)*(gr-4),Math.sin(a)*(gr-4));
+      ctx.lineTo(Math.cos(a)*(gr+4),Math.sin(a)*(gr+4));ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // Label
+  ctx.fillStyle='#aaaacc';ctx.font='bold 9px monospace';ctx.textAlign='center';
+  ctx.fillText('DIFFERENCE ENGINE',x+w/2,y+h-6);
+  ctx.fillStyle='#6a6a9a';ctx.font='8px monospace';
+  ctx.fillText('+4 raw / '+DE_RATE+'s',x+w/2,y+h+12);
+  // Progress bar
+  let prog=diffEngine.timer/DE_RATE;
+  ctx.fillStyle='#1a1a2a';ctx.fillRect(x,y+h,w,5);
+  ctx.fillStyle='#5599ff';ctx.fillRect(x,y+h,Math.round(w*prog),5);
+
+  // Output pile on DE
+  if(diffEngine.output>0){
+    let pileX=x+w-12, pileY=y+4;
+    for(let i=0;i<Math.min(diffEngine.output,5);i++){
+      ctx.fillStyle='rgba(0,0,0,0.3)';ctx.fillRect(pileX+1+i*0.5,pileY-i*2+1,5,3);
+      ctx.fillStyle='#f8f0d8';ctx.fillRect(pileX+i*0.5,pileY-i*2,5,3);
+    }
+    ctx.fillStyle='#aaaacc';ctx.font='7px monospace';ctx.textAlign='center';
+    ctx.fillText('×'+diffEngine.output,pileX+8,pileY+14);
+  }
+}
+
+function drawSunArc(){
+  let p=Math.min(dayTimer/DAY_DURATION,1);
+  ctx.strokeStyle='rgba(200,150,50,0.22)';ctx.lineWidth=1;ctx.setLineDash([3,4]);
+  ctx.beginPath();ctx.moveTo(12,20);ctx.quadraticCurveTo(400,-5,788,20);ctx.stroke();
+  ctx.setLineDash([]);
+  let t=p,sx=(1-t)*(1-t)*12+2*(1-t)*t*400+t*t*788;
+  let sy=clamp((1-t)*(1-t)*20+2*(1-t)*t*(-5)+t*t*20,2,30);
+  let grd=ctx.createRadialGradient(sx,sy,0,sx,sy,11);
+  grd.addColorStop(0,'#fff8a0');grd.addColorStop(.35,'#ffe060');
+  grd.addColorStop(.7,'#ff9900');grd.addColorStop(1,'rgba(255,80,0,0)');
+  ctx.fillStyle=grd;ctx.beginPath();ctx.arc(sx,sy,11,0,Math.PI*2);ctx.fill();
+}
+
+function drawTooltip(desk){
+  let tx=desk.x+40,ty=desk.y-5;
+  if(tx+160>800) tx=desk.x-165;
+  if(ty+100>460)  ty=desk.y-100;
+  let aw=byId(workers,desk.worker);
+  let supBoost=false;
+  if(aw) for(let s of workers){if(s.type==='sup'&&dist(aw.x,aw.y,s.x,s.y)<getSupRadius(s)){supBoost=true;break;}}
+  let lines=[
+    'Desk #'+desk.id+'  ['+desk.type.toUpperCase()+']'+(desk.upgraded?' ⬆upgraded':''),
+    desk.worker!==null?('Worker '+desk.worker+' ('+desk.type+')'+(supBoost?' ✦boosted':' — no boost')):'Empty — click to assign',
+    'Progress: '+Math.round(desk.progress*100)+'%',
+    'In: '+desk.input+'  Out: '+desk.output,
+    upgradeMode&&!desk.upgraded?'Click to upgrade +25% speed £75':'',
+  ].filter(Boolean);
+  ctx.fillStyle='rgba(18,8,2,0.95)';ctx.strokeStyle='#6a4a12';ctx.lineWidth=1;
+  ctx.fillRect(tx,ty,160,lines.length*15+10);ctx.strokeRect(tx,ty,160,lines.length*15+10);
+  ctx.fillStyle='#c9a227';ctx.font='10px monospace';ctx.textAlign='left';
+  lines.forEach((l,i)=>ctx.fillText(l,tx+5,ty+14+i*15));
+}
+
+function drawEndOfDay(){
+  ctx.fillStyle='rgba(8,4,2,0.9)';ctx.fillRect(180,120,440,220);
+  ctx.strokeStyle='#c9a227';ctx.lineWidth=2;ctx.strokeRect(180,120,440,220);
+  ctx.textAlign='center';
+  ctx.fillStyle='#e8c040';ctx.font='bold 22px monospace';ctx.fillText('END OF DAY '+day,400,158);
+  ctx.font='12px monospace';ctx.fillStyle='#c9a227';
+  let execBonusAmt=desks.some(d=>d.room==='execSuite'&&d.worker!==null)?25:0;
+  let checkIncome=checkedBuf*INCOME_CHECKED;
+  ctx.fillText('Checked: \u00A3'+checkIncome+' ('+checkedBuf+'\u00D7\u00A3'+INCOME_CHECKED+')',400,185);
+  if(execBonusAmt>0) ctx.fillText('Exec Suite bonus: +\u00A3'+execBonusAmt,400,201);
+  ctx.fillText('Wages:  \u00A3'+dailyWages(),400,execBonusAmt>0?218:203);
+  let yOff=execBonusAmt>0?15:0;
+  ctx.fillStyle=endOfDayNet>=0?'#44cc44':'#cc4444';
+  ctx.font='bold 13px monospace';
+  ctx.fillText('Net: \u00A3'+(endOfDayNet>=0?'+':'')+endOfDayNet,400,225+yOff);
+  ctx.fillStyle='#e8c040';ctx.font='bold 15px monospace';
+  ctx.fillText('Balance: \u00A3'+money,400,250+yOff);
+  ctx.fillStyle='#8a6a28';ctx.font='10px monospace';
+  ctx.fillText('Day '+(day+1)+' begins shortly...',400,278+yOff);
+}
+
+function drawGameOver(){
+  ctx.fillStyle='rgba(6,0,0,0.93)';ctx.fillRect(130,140,540,200);
+  ctx.strokeStyle='#cc4422';ctx.lineWidth=3;ctx.strokeRect(130,140,540,200);
+  ctx.textAlign='center';
+  ctx.fillStyle='#cc4422';ctx.font='bold 28px monospace';ctx.fillText('BUREAU BANKRUPT',400,186);
+  ctx.fillStyle='#c9a227';ctx.font='13px monospace';
+  ctx.fillText('The Bureau could not meet its obligations.',400,216);
+  ctx.fillText('Days completed: '+day+'  |  Balance: \u00A3'+money,400,238);
+  ctx.fillStyle='#2a1a08';ctx.fillRect(310,268,180,34);
+  ctx.strokeStyle='#c9a227';ctx.lineWidth=1;ctx.strokeRect(310,268,180,34);
+  ctx.fillStyle='#e8c040';ctx.font='bold 13px monospace';ctx.fillText('New Commission',400,290);
+}
+
+function drawWin(){
+  ctx.fillStyle='rgba(0,8,0,0.93)';ctx.fillRect(110,110,580,240);
+  ctx.strokeStyle='#44cc44';ctx.lineWidth=3;ctx.strokeRect(110,110,580,240);
+  ctx.textAlign='center';
+  ctx.fillStyle='#44ee44';ctx.font='bold 26px monospace';ctx.fillText('BUREAU COMMENDED!',400,150);
+  ctx.fillStyle='#c9a227';ctx.font='13px monospace';
+  let reason=totalEarned>=WIN_MONEY?'Accumulated \u00A3'+totalEarned+' in earnings!':'Survived all '+GOAL_DAYS+' days!';
+  ctx.fillText(reason,400,180);
+  ctx.fillText('Day '+day+'  |  Balance: \u00A3'+money,400,202);
+  ctx.fillText('Total earned: \u00A3'+totalEarned,400,224);
+  ctx.fillStyle='#8a6a28';ctx.font='11px monospace';
+  ctx.fillText('The Crown thanks the Bureau for its diligent service.',400,250);
+  // New Commission button
+  ctx.fillStyle='#1a2a1a';ctx.fillRect(200,270,170,34);
+  ctx.strokeStyle='#44cc44';ctx.lineWidth=1;ctx.strokeRect(200,270,170,34);
+  ctx.fillStyle='#e8c040';ctx.font='bold 13px monospace';ctx.fillText('New Commission',285,292);
+  // Continue Freeplay button
+  ctx.fillStyle='#1a1a2a';ctx.fillRect(430,270,170,34);
+  ctx.strokeStyle='#6688cc';ctx.lineWidth=1;ctx.strokeRect(430,270,170,34);
+  ctx.fillStyle='#aaccff';ctx.font='bold 13px monospace';ctx.fillText('Continue Freeplay',515,292);
+}
+
+// ── MAIN DRAW ─────────────────────────────────────────────────
+function draw(){
+  ctx.fillStyle='#2a1808';ctx.fillRect(0,0,800,460);
+  drawRoom(8,8,261,207,'Calc Wing',rooms.calcWing,0);
+  drawRoom(267,8,531,207,'Copy Room',rooms.copyRoom,250);
+  drawRoom(537,8,792,207,'Check Room',rooms.checkRoom,400);
+  drawTiles(8,215,792,267,'#7a5a3a','#6a4a2a');
+  ctx.fillStyle='#5a3a1a';ctx.font='9px monospace';ctx.textAlign='center';
+  ctx.fillText('— HALLWAY —',400,244);
+  drawRoom(8,275,391,452,'Exec Suite',rooms.execSuite,600);
+  drawRoom(397,275,792,452,'Expansion Wing',rooms.expansion,500);
+  drawWalls();
+
+  for(let d of desks) drawDesk(d, hoverDesk&&hoverDesk.id===d.id);
+
+  // Walk lines
+  for(let w of workers){
+    if(w.state==='walking'&&w.desk!==null){
+      ctx.save();ctx.setLineDash([5,5]);ctx.strokeStyle='rgba(255,238,0,0.4)';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(w.x,w.y);ctx.lineTo(w.tx,w.ty);ctx.stroke();ctx.restore();
+    }
+    // Runner path lines
+    if(w.type==='runner'&&(w.state==='fetching'||w.state==='delivering')){
+      ctx.save();ctx.setLineDash([3,4]);ctx.strokeStyle='rgba(170,136,51,0.5)';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(w.x,w.y);ctx.lineTo(w.tx,w.ty);ctx.stroke();ctx.restore();
+    }
+  }
+
+  // Placement ghost
+  if(placingDesk){
+    let r=ROOM_BOUNDS[placingDesk.room];
+    if(r){
+      ctx.save();ctx.globalAlpha=0.2;ctx.fillStyle='#44ee44';
+      ctx.fillRect(r[0],r[1],r[2]-r[0],r[3]-r[1]);ctx.restore();
+    }
+    if(mouseX>0&&mouseY>0) drawGhostDesk(mouseX,mouseY,placingDesk.type);
+  }
+
+  drawDifferenceEngine();
+  for(let w of workers) drawWorker(w);
+  drawSunArc();
+
+  // Day bar
+  let p=Math.min(dayTimer/DAY_DURATION,1);
+  ctx.fillStyle='rgba(0,0,0,0.5)';ctx.fillRect(0,0,800,5);
+  ctx.fillStyle=p<0.5?'#ffcc44':'#ff8822';ctx.fillRect(0,0,Math.round(800*p),5);
+
+  if(hoverDesk&&hoverDesk.unlocked) drawTooltip(hoverDesk);
+  if(endOfDayActive) drawEndOfDay();
+  if(gameOver) drawGameOver();
+  if(gameWon)  drawWin();
+}
+
+// ── HUD ───────────────────────────────────────────────────────
+function updateHUD(){
+  document.getElementById('hMoney').textContent='£'+money;
+  document.getElementById('hDay').textContent=freeplay?'Day '+day+' — Freeplay':'Day '+day+' of '+GOAL_DAYS;
+  document.getElementById('hWages').textContent='Wages: £'+dailyWages()+'/day';
+  document.getElementById('hLastInc').textContent='Last day: £'+lastIncome+' | Earned: £'+totalEarned+'/£'+WIN_MONEY;
+
+  // Pipeline: desk-based counts
+  let rawOnDesks = desks.filter(d=>d.unlocked&&d.type==='calc').reduce((s,d)=>s+d.output,0)
+                  + (diffEngine.bought?diffEngine.output:0);
+  let inTransit  = workers.filter(w=>w.type==='runner'&&w.carrying!==null).length;
+
+  document.getElementById('hRaw').textContent=rawOnDesks+' units';
+  document.getElementById('hCopy').textContent=inTransit+' in transit';
+  document.getElementById('hChecked').textContent=todayChecked+' units today';
+
+  const MAX_BUF=20;
+  document.getElementById('pRaw').style.width=Math.min(100,rawOnDesks/MAX_BUF*100)+'%';
+  document.getElementById('pCopy').style.width=Math.min(100,inTransit/5*100)+'%';
+  document.getElementById('pCheck').style.width=Math.min(100,todayChecked/20*100)+'%';
+
+  document.getElementById('btnHCalc').disabled  =money<HIRE_COST.calc;
+  document.getElementById('btnHCopy').disabled  =money<HIRE_COST.copy;
+  document.getElementById('btnHCheck').disabled =money<HIRE_COST.check;
+  document.getElementById('btnHSup').disabled   =money<HIRE_COST.sup;
+  document.getElementById('btnHRunner').disabled=money<HIRE_COST.runner;
+
+  const rb=[
+    {id:'btnRCopy',  key:'copyRoom',  cost:250, lbl:'Copy Room'},
+    {id:'btnRCheck', key:'checkRoom', cost:400, lbl:'Check Room'},
+    {id:'btnRExec',  key:'execSuite', cost:600, lbl:'Exec Suite (sup here \u2192 bureau-wide boost +\u00A325/day)'},
+    {id:'btnRExpand',key:'expansion', cost:500, lbl:'Expansion Wing'},
+  ];
+  for(let r of rb){
+    let b=document.getElementById(r.id);
+    if(rooms[r.key]){b.textContent=r.lbl+' ✓';b.disabled=true;b.className='btn bought';}
+    else{b.textContent=r.lbl+' £'+r.cost;b.disabled=money<r.cost;b.className='btn';}
+  }
+
+  // Difference engine button
+  let deBtn=document.getElementById('btnDiffEng');
+  if(diffEngine.bought){deBtn.textContent='Diff. Engine ✓';deBtn.disabled=true;deBtn.className='btn bought';}
+  else{deBtn.textContent='Difference Engine £'+DE_COST;deBtn.disabled=money<DE_COST||!rooms.expansion;
+       deBtn.className='btn';}
+
+  // Place desk buttons
+  document.getElementById('btnPCalc').disabled =money<DESK_COST.calc;
+  document.getElementById('btnPCopy').disabled =money<DESK_COST.copy;
+  document.getElementById('btnPCheck').disabled=money<DESK_COST.check;
+  document.getElementById('btnPSup').disabled  =money<DESK_COST.sup;
+  document.getElementById('btnUpgrade').disabled=money<DESK_UPGRADE;
+
+  // Active placement highlight
+  ['btnPCalc','btnPCopy','btnPCheck','btnPSup'].forEach(id=>{
+    let t=id==='btnPCalc'?'calc':id==='btnPCopy'?'copy':id==='btnPCheck'?'check':'sup';
+    document.getElementById(id).className='btn'+(placingDesk&&placingDesk.type===t?' placing':'');
+  });
+  document.getElementById('btnUpgrade').className='btn'+(upgradeMode?' active':'');
+
+  let hint='';
+  if(placingDesk) hint='Click in a room to place. ESC to cancel.';
+  else if(upgradeMode) hint='Click a desk to upgrade it. ESC cancel.';
+  document.getElementById('hPlaceHint').textContent=hint;
+
+  // Status
+  let sl=document.getElementById('statusLine');
+  if(selectedWorker){
+    let w=byId(workers,selectedWorker.id);
+    if(w){
+      if(w.type==='runner'){
+        sl.textContent='Runner '+w.id+' '+w.state+(w.carrying?' carrying '+w.carrying:'');
+      } else {
+        let boosted=w.type!=='sup'&&workers.some(s=>s.type==='sup'&&dist(w.x,w.y,s.x,s.y)<getSupRadius(s));
+        sl.textContent='Worker '+w.id+' ('+w.type+') '+w.state+(boosted?' ✦boosted':'')+(w.desk!==null?' @desk'+w.desk:'')+'  [click desk to assign]';
+      }
+    }else{selectedWorker=null;sl.textContent='Click a worker to select';}
+  }else{
+    sl.textContent='Click worker to select, then click desk to assign.';
+  }
+}
+
+// ── HIRE / BUY ────────────────────────────────────────────────
+function hireWorker(type){
+  if(money<HIRE_COST[type]) return;
+  money-=HIRE_COST[type];
+  workers.push(makeWorker(type,nextWid++));
+}
+document.getElementById('btnHCalc').onclick  =()=>hireWorker('calc');
+document.getElementById('btnHCopy').onclick  =()=>hireWorker('copy');
+document.getElementById('btnHCheck').onclick =()=>hireWorker('check');
+document.getElementById('btnHSup').onclick   =()=>hireWorker('sup');
+document.getElementById('btnHRunner').onclick=()=>hireWorker('runner');
+
+function buyRoom(key,cost,deskIds){
+  if(rooms[key]||money<cost) return;
+  money-=cost; rooms[key]=true;
+  if(deskIds) for(let id of deskIds){
+    let d=byId(desks,id);
+    if(d){ d.unlocked=true; d.output=0; d.input=0; }
+  }
+}
+document.getElementById('btnRCopy').onclick  =()=>buyRoom('copyRoom', 250,[4,5]);
+document.getElementById('btnRCheck').onclick =()=>buyRoom('checkRoom',400,[8,9]);
+document.getElementById('btnRExec').onclick  =()=>buyRoom('execSuite',600,[12]);
+document.getElementById('btnRExpand').onclick=()=>buyRoom('expansion',500,[]);
+document.getElementById('btnDiffEng').onclick=()=>{
+  if(diffEngine.bought||money<DE_COST||!rooms.expansion) return;
+  money-=DE_COST; diffEngine.bought=true; diffEngine.output=0;
+  document.getElementById('eventBar').textContent=
+    'The Difference Engine is assembled! It will now produce 4 raw calculations every '+DE_RATE+'s automatically.';
+};
+
+// Desk placement buttons
+function startPlacing(type){
+  placingDesk={type,cost:DESK_COST[type]};
+  upgradeMode=false;
+  canvas.style.cursor='crosshair';
+}
+document.getElementById('btnPCalc').onclick =()=>startPlacing('calc');
+document.getElementById('btnPCopy').onclick =()=>startPlacing('copy');
+document.getElementById('btnPCheck').onclick=()=>startPlacing('check');
+document.getElementById('btnPSup').onclick  =()=>startPlacing('sup');
+document.getElementById('btnUpgrade').onclick=()=>{
+  upgradeMode=!upgradeMode;
+  placingDesk=null;
+  canvas.style.cursor=upgradeMode?'pointer':'default';
+};
+
+// ── CANVAS INPUT ──────────────────────────────────────────────
+function getDeskAt(px,py){
+  for(let d of desks){
+    if(!d.unlocked) continue;
+    if(px>=d.x&&px<=d.x+36&&py>=d.y&&py<=d.y+26) return d;
+  }
+  return null;
+}
+function getWorkerAt(px,py){
+  for(let w of workers){
+    if(Math.abs(px-w.x)<=10&&Math.abs(py-w.y)<=14) return w;
+  }
+  return null;
+}
+
+canvas.addEventListener('mousemove',e=>{
+  let r=canvas.getBoundingClientRect(),sx=800/r.width,sy=460/r.height;
+  mouseX=(e.clientX-r.left)*sx; mouseY=(e.clientY-r.top)*sy;
+  hoverDesk=getDeskAt(mouseX,mouseY);
+});
+canvas.addEventListener('mouseleave',()=>{hoverDesk=null;});
+
+canvas.addEventListener('click',e=>{
+  let r=canvas.getBoundingClientRect(),sx=800/r.width,sy=460/r.height;
+  let cx=(e.clientX-r.left)*sx, cy=(e.clientY-r.top)*sy;
+
+  if(gameOver||gameWon){
+    if(cx>=200&&cx<=370&&cy>=270&&cy<=304) restartGame();
+    else if(gameWon&&cx>=430&&cx<=600&&cy>=270&&cy<=304){
+      gameWon=false; freeplay=true;
+      startNewDay();
+    }
+    return;
+  }
+  if(endOfDayActive) return;
+
+  // Desk placement mode
+  if(placingDesk){
+    // Find which room was clicked
+    let room=roomAt(cx,cy);
+    if(!room||!rooms[room]){
+      // Not in any valid room
+      document.getElementById('eventBar').textContent='Place the desk inside an unlocked room.';
+      return;
+    }
+    // Only allowed desk types per room
+    const allowed={calcWing:  ['calc','sup'],
+                   copyRoom:  ['copy','sup'],
+                   checkRoom: ['check','sup'],
+                   execSuite: ['sup'],
+                   expansion: ['calc','copy','check','sup']};
+    if(!(allowed[room]||[]).includes(placingDesk.type)){
+      document.getElementById('eventBar').textContent=
+        'Cannot place a '+placingDesk.type+' desk in the '+room+'.';
+      return;
+    }
+    if(money<placingDesk.cost){
+      document.getElementById('eventBar').textContent='Not enough funds.';
+      return;
+    }
+    // Check overlap with existing desks
+    let overlap=desks.some(d=>d.unlocked&&Math.abs(cx-(d.x+18))<40&&Math.abs(cy-(d.y+13))<32);
+    // Check overlap with Difference Engine
+    let de=diffEngine;
+    if(diffEngine.bought&&cx>de.x-20&&cx<de.x+de.w+20&&cy>de.y-10&&cy<de.y+de.h+10) overlap=true;
+    if(overlap){
+      document.getElementById('eventBar').textContent='Too close to an existing desk — try another spot.';
+      return;
+    }
+    // Place desk
+    money-=placingDesk.cost;
+    desks.push({id:nextDid++,type:placingDesk.type,room,
+                x:Math.round(cx-18),y:Math.round(cy-13),
+                unlocked:true,worker:null,progress:0,upgraded:false,output:0,input:0});
+    document.getElementById('eventBar').textContent=
+      placingDesk.type.charAt(0).toUpperCase()+placingDesk.type.slice(1)+' desk placed. Assign a worker to it!';
+    placingDesk=null;
+    canvas.style.cursor='default';
+    return;
+  }
+
+  // Upgrade mode
+  if(upgradeMode){
+    let d=getDeskAt(cx,cy);
+    if(d&&d.unlocked&&!d.upgraded&&money>=DESK_UPGRADE){
+      money-=DESK_UPGRADE; d.upgraded=true;
+      document.getElementById('eventBar').textContent='Desk upgraded — 25% faster production!';
+    }
+    upgradeMode=false;
+    canvas.style.cursor='default';
+    return;
+  }
+
+  let cw=getWorkerAt(cx,cy);
+  let cd=getDeskAt(cx,cy);
+
+  if(cw){
+    // Runners can't be manually assigned
+    if(cw.type==='runner'){
+      selectedWorker=(selectedWorker&&selectedWorker.id===cw.id)?null:cw;
+      return;
+    }
+    selectedWorker=(selectedWorker&&selectedWorker.id===cw.id)?null:cw;
+    return;
+  }
+
+  if(cd&&selectedWorker){
+    let w=byId(workers,selectedWorker.id);
+    if(!w){selectedWorker=null;return;}
+    // Runners can't be manually assigned to desks
+    if(w.type==='runner'){selectedWorker=null;return;}
+    if(cd.id===w.desk){unassignWorker(w);selectedWorker=null;return;}
+    if(!cd.unlocked) return;
+    if(cd.worker!==null&&cd.worker!==w.id){
+      // Swap: boot current worker
+      let prev=byId(workers,cd.worker);
+      if(prev) unassignWorker(prev);
+    }
+    if(w.desk!==null){let old=byId(desks,w.desk);if(old){old.worker=null;old.progress=0;}}
+    cd.worker=w.id; w.desk=cd.id; w.state='walking';
+    w.tx=cd.x+18; w.ty=cd.y+5; w.workTimer=0;
+    selectedWorker=null;
+    return;
+  }
+  if(!cd&&!cw) selectedWorker=null;
+});
+
+canvas.addEventListener('contextmenu',e=>{e.preventDefault();placingDesk=null;upgradeMode=false;canvas.style.cursor='default';});
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){selectedWorker=null;placingDesk=null;upgradeMode=false;canvas.style.cursor='default';return;}
+  let n=parseInt(e.key);
+  if(n>=1&&n<=9){let w=workers.find(x=>x.id===n);if(w)selectedWorker=w;}
+});
+
+// ── RESTART ───────────────────────────────────────────────────
+function restartGame(){
+  money=1500;day=1;dayTimer=0;gameOver=false;gameWon=false;freeplay=false;
+  endOfDayActive=false;checkedBuf=0;todayChecked=0;
+  lastIncome=0;totalEarned=0;nextWid=4;nextDid=20;selectedWorker=null;
+  placingDesk=null;upgradeMode=false;
+  evCalcMod=1;evCopyMod=1;evAllMod=1;evCalcTimer=0;evCopyTimer=0;evAllTimer=0;nextEvTimer=20;
+  diffEngine={bought:false,timer:0,x:430,y:296,w:130,h:100,output:0};
+  idleNagTimer=25; warningNagTimer=18;
+  rooms={calcWing:true,copyRoom:true,checkRoom:true,execSuite:false,expansion:false};
+  desks=[
+    {id:0,  type:'calc',  room:'calcWing',  x:30,  y:50,  unlocked:true,  worker:null,progress:0,upgraded:false,output:0,input:0},
+    {id:1,  type:'calc',  room:'calcWing',  x:120, y:50,  unlocked:true,  worker:null,progress:0,upgraded:false,output:0,input:0},
+    {id:12, type:'sup',   room:'execSuite', x:40,  y:310, unlocked:false, worker:null,progress:0,upgraded:false,output:0,input:0},
+  ];
+  workers=[makeWorker('calc',1),makeWorker('calc',2),makeWorker('runner',3)];
+  canvas.style.cursor='default';hoverDesk=null;
+  document.getElementById('btnHRunner').onclick=()=>hireWorker('runner');
+  document.getElementById('eventBar').textContent='Welcome back. Assign workers to desks to begin production.';
+}
+
+// ── LOOP ──────────────────────────────────────────────────────
+let lastTs=null;
+function loop(ts){
+  if(lastTs===null) lastTs=ts;
+  let dt=Math.min((ts-lastTs)/1000,0.1);
+  lastTs=ts;
+  update(dt);draw();updateHUD();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
